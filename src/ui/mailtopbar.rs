@@ -1,20 +1,24 @@
+use crate::app::AppState;
 use crate::models::Theme;
 use gpui::{Context, Entity, Window, div, prelude::*, px, rgb};
 
 pub struct MailTopBar {
+    pub state: Entity<AppState>,
     pub theme: Entity<Theme>,
 }
 
 impl MailTopBar {
-    pub fn new(theme: Entity<Theme>, cx: &mut Context<Self>) -> Self {
+    pub fn new(state: Entity<AppState>, theme: Entity<Theme>, cx: &mut Context<Self>) -> Self {
         cx.observe(&theme, |_, _, cx| cx.notify()).detach();
-        Self { theme }
+        Self { theme, state }
     }
 }
 
 impl Render for MailTopBar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme.read(cx).clone();
+        let state = self.state.clone();
+
         div()
             .w_full()
             .h(px(35.0))
@@ -24,6 +28,9 @@ impl Render for MailTopBar {
             .bg(rgb(theme.surface))
             .child(
                 div()
+                    .id("back-to-inbox")
+                    .cursor_pointer()
+
                     .h_full()
                     .px(px(18.0))
                     .flex()
@@ -35,7 +42,16 @@ impl Render for MailTopBar {
                     .pb(px(1.0))
                     .child("inbox")
                     .border_r(px(1.0))
-                    .border_color(rgb(theme.border)),
+                    .border_color(rgb(theme.border))
+                    
+                    .on_click(move |_event, _window, cx| {
+                        state.update(cx, |state, cx| {
+                            if state.selected_message.is_some() {
+                                state.selected_message = None;
+                                cx.notify();
+                            }
+                        });
+                    }),
             )
             .child(
                 div()

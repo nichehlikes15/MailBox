@@ -70,14 +70,13 @@ impl Render for TopBar {
                                     .h(px(15.0)),
                             )
                             .on_click(cx.listener(|topbar, _, _, cx| {
-                                if let Some(settings_window) = topbar.settings_window {
-                                    if settings_window
+                                if let Some(settings_window) = topbar.settings_window
+                                    && settings_window
                                         .update(cx, |_, window, _| window.activate_window())
                                         .is_ok()
                                     {
                                         return;
                                     }
-                                }
 
                                 let bounds = Bounds::centered(None, size(px(900.0), px(650.0)), cx);
                                 let theme_entity = topbar.theme.clone();

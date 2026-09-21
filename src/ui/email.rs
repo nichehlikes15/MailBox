@@ -1,6 +1,6 @@
 use crate::app::AppState;
 use crate::models::{Email, Theme};
-use gpui::{Context, Entity, Render, SharedString, Window, div, prelude::*, px, rgb};
+use gpui::{Context, Entity, Render, SharedString, Window, div, prelude::*, px, rgb, img, svg};
 
 pub struct EmailView {
     pub state: Entity<AppState>,
@@ -37,7 +37,7 @@ impl EmailView {
                 };
                 self.body = crate::html_text::display_body(raw).into();
                 self.subject = email.subject.clone().into();
-                self.from = format!("From: {}", email.from).into();
+                self.from = email.from.clone().into();
                 self.email_id = Some(email.id);
             }
             None => {
@@ -57,7 +57,7 @@ impl Render for EmailView {
         let Some(email_id) = self.email_id.as_deref() else {
             return div().into_any_element();
         };
-        let state = self.state.clone();
+        // let state = self.state.clone();
 
         div()
             .size_full()
@@ -67,19 +67,19 @@ impl Render for EmailView {
             .flex()
             .flex_col()
             .bg(rgb(theme.background))
-            .child(
-                div()
-                    .id("back-to-inbox")
-                    .cursor_pointer()
-                    .text_color(rgb(theme.text))
-                    .on_click(move |_event, _window, cx| {
-                        state.update(cx, |state, cx| {
-                            state.selected_message = None;
-                            cx.notify();
-                        });
-                    })
-                    .child("Back to inbox"),
-            )
+            // .child(
+            //     div()
+            //         .id("back-to-inbox")
+            //         .cursor_pointer()
+            //         .text_color(rgb(theme.text))
+            //         .on_click(move |_event, _window, cx| {
+            //             state.update(cx, |state, cx| {
+            //                 state.selected_message = None;
+            //                 cx.notify();
+            //             });
+            //         })
+            //         .child("Back to inbox"),
+            // )
             .child(
                 div()
                     .text_size(px(22.0))
@@ -88,10 +88,22 @@ impl Render for EmailView {
             )
             .child(
                 div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
                     .mt(px(12.0))
-                    .text_size(px(14.0))
-                    .text_color(rgb(theme.text_muted))
-                    .child(self.from.clone()),
+                    .child(
+                        img("images/default.png")
+                            .w(px(25.0))
+                            .h(px(25.0))
+                            .rounded_full(),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(14.0))
+                            .text_color(rgb(theme.text_muted))
+                            .child(self.from.clone()),
+                    ),
             )
             .child(
                 div()
@@ -105,7 +117,7 @@ impl Render for EmailView {
                     .child(
                         div()
                             .text_size(px(15.0))
-                            .text_color(rgb(theme.text_muted))
+                            .text_color(rgb(theme.text))
                             .child(self.body.clone()),
                     ),
             )

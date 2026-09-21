@@ -10,11 +10,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 
 const CLIENT_ID: &str = "830227318434-7mgfk7bucm5mt9sl8271oevg9bjj6vlu.apps.googleusercontent.com";
-
 const REDIRECT_URI: &str = "http://127.0.0.1:49152/callback";
-
 const SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
-
 const OAUTH_SERVER: &str = "https://mail-server-production-610b.up.railway.app";
 
 #[derive(Debug, Deserialize)]
@@ -32,7 +29,7 @@ pub struct GoogleTokenResponse {
     pub token_type: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)] 
 pub struct GoogleAccount {
     pub email: String,
     pub access_token: String,
@@ -352,10 +349,7 @@ struct GmailBody {
     data: Option<String>,
 }
 
-pub async fn get_gmail_mail(
-    account: &mut GoogleAccount,
-    limit: usize,
-) -> Result<Vec<super::temp_mail::Email>> {
+pub async fn get_gmail_mail(account: &mut GoogleAccount, limit: usize) -> Result<Vec<super::temp_mail::Email>> {
     let access_token = account.ensure_access_token().await?.to_owned();
 
     let limit = limit.clamp(1, 25);
@@ -430,10 +424,7 @@ pub async fn get_gmail_mail(
     Ok(emails)
 }
 
-pub async fn get_gmail_message(
-    account: &mut GoogleAccount,
-    message_id: &str,
-) -> Result<super::temp_mail::Email> {
+pub async fn get_gmail_message(account: &mut GoogleAccount, message_id: &str) -> Result<super::temp_mail::Email> {
     let access_token = account.ensure_access_token().await?.to_owned();
 
     let url = format!(

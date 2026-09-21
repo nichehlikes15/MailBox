@@ -97,7 +97,7 @@ impl MailApp {
                 let state = cx.new(|_| AppState::from_storage(crate::storage::load()));
                 let sidebar = cx.new(|cx| Sidebar::new(state.clone(), theme.clone(), cx));
                 let topbar = cx.new(|cx| TopBar::new(theme.clone(), state.clone(), cx));
-                let mailtopbar = cx.new(|cx| MailTopBar::new(theme.clone(), cx));
+                let mailtopbar = cx.new(|cx| MailTopBar::new(state.clone(), theme.clone(), cx));
 
                 let email_view = cx.new(|cx| EmailView::new(state.clone(), theme.clone(), cx));
                 let inbox =
