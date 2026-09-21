@@ -2,6 +2,9 @@ use gpui::{ClipboardItem, Context, Entity, Render, Window, div, prelude::*, px, 
 
 use crate::app::SidebarEmail;
 use crate::models::{Theme, create_account, login};
+// The right-hand panel: Gmail accounts and temp-mail addresses. Clicking an
+// account selects it (the inbox reacts through its observer on `state`);
+// clicking the already-selected one copies its address.
 pub struct Sidebar {
     pub state: Entity<crate::app::AppState>,
     pub theme: Entity<Theme>,
@@ -15,6 +18,8 @@ impl Sidebar {
     ) -> Self {
         // This view is cached, so it must re-render itself when what it
         // shows changes.
+        // e.g. a new account was added or a different one selected, so redraw
+        // the list.
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
         cx.observe(&theme, |_, _, cx| cx.notify()).detach();
         Self { state, theme }
@@ -55,6 +60,7 @@ impl Render for Sidebar {
                     .cursor_pointer()
                     .on_click(move |_event, _window, cx| {
                         if is_selected {
+                            // Clicking the selected address copies it.
                             cx.write_to_clipboard(ClipboardItem::new_string(email_address.clone()));
                             return;
                         }
@@ -116,6 +122,7 @@ impl Render for Sidebar {
                                                 cx.notify();
                                             });
                                             // login() runs an axum server and HTTP calls, so it runs on tokio.
+                                            // Start the work on tokio first, then wait for it from a gpui task.
                                             let io = crate::runtime::spawn(login());
                                             cx.spawn(async move |_this, cx2| {
                                                 let result = io
@@ -255,6 +262,13 @@ impl Render for Sidebar {
                                         move |_this, _event, _window, cx| {
                                             let app_state = temp_email_state.clone();
 
+                                            // Same pattern as login above: the network call runs on tokio, and the
+                                            // gpui task below waits for it and then updates `state` on the UI side.
+                                            //
+                                            // `io.await` gives `Result<Result<TempEmail>, JoinError>`: the outer
+                                            // error means the tokio task panicked/was cancelled, the inner one that
+                                            // mail.tm said no. `map_err` + `and_then` flatten both into one
+                                            // `Result` so we only need one `match`.
                                             let io = crate::runtime::spawn(create_account());
                                             cx.spawn(async move |_this, cx2| {
                                                 let result = io

@@ -2,10 +2,14 @@ use crate::app::AppState;
 use crate::models::{Email, Theme};
 use gpui::{Context, Entity, Render, SharedString, Window, div, prelude::*, px, rgb, img, svg};
 
+// Shows one opened email: subject, sender and body, with a back button.
 pub struct EmailView {
     pub state: Entity<AppState>,
     pub theme: Entity<Theme>,
     email_id: Option<String>,
+    // `SharedString` is gpui's cheap-to-clone string (reference counted), so
+    // passing it to the UI each render doesn't copy the text. The old code
+    // cloned the entire `Email`, body and all, on every render.
     subject: SharedString,
     from: SharedString,
     /// Cleaned-up body text, computed once when the email is shown rather
@@ -15,6 +19,9 @@ pub struct EmailView {
 
 impl EmailView {
     pub fn new(state: Entity<AppState>, theme: Entity<Theme>, cx: &mut Context<Self>) -> Self {
+        // Re-render when the theme changes. This view is cached (see app.rs), so
+        // without this it would keep the old colours until something else
+        // notified it.
         cx.observe(&theme, |_, _, cx| cx.notify()).detach();
 
         Self {
@@ -27,6 +34,10 @@ impl EmailView {
         }
     }
 
+    /// Called by the inbox when an email is opened (or with `None` to clear).
+    /// All the expensive work happens here, once: the raw body (often a huge
+    /// blob of HTML) is converted to plain text by `html_text::display_body`.
+    /// `render` then just displays the stored strings.
     pub fn show(&mut self, email: Option<Email>, cx: &mut Context<Self>) {
         match email {
             Some(email) => {
@@ -108,10 +119,16 @@ impl Render for EmailView {
             .child(
                 div()
                     // Keyed by email so each one opens scrolled to the top.
+                    // Scrolling needs an element id, because gpui stores the scroll offset
+                    // per id. Putting the email id in it means each email gets its own
+                    // scroll position, so a new email opens at the top.
                     .id(format!("email-body-{email_id}"))
                     .mt(px(24.0))
                     .flex_1()
                     .min_h(px(0.0))
+                    // Was commented out before, so long emails just overflowed the window.
+                    // `flex_1` + `min_h(0)` give this box the remaining height; anything
+                    // taller than that scrolls.
                     .overflow_y_scroll()
                     .pr(px(12.0))
                     .child(

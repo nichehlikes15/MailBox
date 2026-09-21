@@ -9,6 +9,10 @@ pub struct StoredData {
     pub emails: HashMap<String, Vec<Email>>,
 }
 
+// Windows: %APPDATA%/mailbox/state.json.
+// Linux/macOS: there's no APPDATA, so this falls back to ./mailbox/state.json
+// in whatever folder the app was started from. That folder is in .gitignore
+// because it contains account tokens and passwords, never commit it.
 fn storage_path() -> PathBuf {
     let base = std::env::var_os("APPDATA")
         .or_else(|| std::env::var_os("LOCALAPPDATA"))

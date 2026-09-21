@@ -3,6 +3,8 @@ use gpui::{Context, Entity, Window, WindowControlArea, div, prelude::*, px, rgb,
 use crate::app::AppState;
 use crate::models::Theme;
 
+// The settings window. It's a separate window with its own root view, so
+// it isn't cached and re-renders whenever gpui redraws that window.
 pub struct Settings {
     pub theme: Entity<Theme>,
     pub state: Entity<AppState>,
@@ -52,6 +54,9 @@ impl Settings {
                         settings.selected_theme = name.clone();
                         let selected_theme = settings.selected_theme.clone();
                         settings.theme.update(cx, |theme, theme_cx| {
+                            // Replace the shared theme and notify. Every view that observes
+                            // `theme` (all of them, see their `new()`) then re-renders with the
+                            // new colours, in both windows.
                             *theme = Theme::load_named(&selected_theme);
                             theme_cx.notify();
                         });
@@ -276,6 +281,10 @@ impl Render for Settings {
                                             state.selected_message = None;
                                             state.selected_sidebar_email = None;
                                             state.google_login_status = None;
+                                            // The inbox observes `state`, sees nothing is selected any more and
+                                            // cancels its background work. Because accounts are now looked up
+                                            // by email instead of index, a request that finishes after this
+                                            // can't crash the app.
                                             crate::storage::clear();
                                             cx.notify();
                                         });

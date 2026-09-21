@@ -2,6 +2,8 @@ use crate::app::AppState;
 use crate::models::Theme;
 use gpui::{Context, Entity, Window, div, prelude::*, px, rgb};
 
+// The tab strip above the inbox (inbox / starred / drafts / ...). Only
+// "inbox" does anything right now; the rest are placeholders.
 pub struct MailTopBar {
     pub state: Entity<AppState>,
     pub theme: Entity<Theme>,
@@ -9,6 +11,8 @@ pub struct MailTopBar {
 
 impl MailTopBar {
     pub fn new(state: Entity<AppState>, theme: Entity<Theme>, cx: &mut Context<Self>) -> Self {
+    pub fn new(theme: Entity<Theme>, cx: &mut Context<Self>) -> Self {
+        // Cached view (see app.rs): redraw when the theme changes.
         cx.observe(&theme, |_, _, cx| cx.notify()).detach();
         Self { theme, state }
     }

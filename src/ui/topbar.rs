@@ -5,14 +5,20 @@ use gpui::{
     div, prelude::*, px, rgb, size, svg,
 };
 
+// The custom title bar: app name, settings button and window controls
+// (the window is created with a transparent system title bar, so we draw
+// our own).
 pub struct TopBar {
     pub theme: Entity<Theme>,
     pub state: Entity<AppState>,
+    // Handle to the settings window if it's open, so clicking the button
+    // again focuses it instead of opening a second one.
     pub settings_window: Option<WindowHandle<crate::ui::settings::Settings>>,
 }
 
 impl TopBar {
     pub fn new(theme: Entity<Theme>, state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
+        // Cached view (see app.rs), so redraw ourselves when the theme changes.
         cx.observe(&theme, |_, _, cx| cx.notify()).detach();
         Self {
             theme,
@@ -46,6 +52,7 @@ impl Render for TopBar {
                 div()
                     .flex_1()
                     .h_full()
+                    // An empty area you can drag to move the window.
                     .window_control_area(WindowControlArea::Drag),
             )
             .child(
@@ -72,6 +79,10 @@ impl Render for TopBar {
                             .on_click(cx.listener(|topbar, _, _, cx| {
                                 if let Some(settings_window) = topbar.settings_window
                                     && settings_window
+                                // If the settings window is still open, just bring it to the front.
+                                // `update` fails if it was closed, so we fall through and open a new one.
+                                if let Some(settings_window) = topbar.settings_window {
+                                    if settings_window
                                         .update(cx, |_, window, _| window.activate_window())
                                         .is_ok()
                                     {
@@ -134,6 +145,9 @@ impl Render for TopBar {
                             .justify_center()
                             .hover(|this| this.bg(rgb(0x303030)))
                             .window_control_area(WindowControlArea::Max)
+                            // Icons are loaded by path from the embedded assets. The old
+                            // `svg().data(include_bytes!(...))` copied and hashed the file bytes
+                            // on every render; with `.path()` gpui loads it once and caches it.
                             .child(if _window.is_maximized() {
                                 svg()
                                     .path("images/restore.svg")

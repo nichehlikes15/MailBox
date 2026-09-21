@@ -52,6 +52,7 @@ struct ThemeColors {
     selected_option: String,
 }
 
+// Built the first time `Theme::available()` is called, then reused.
 static AVAILABLE: OnceLock<Vec<ThemeInfo>> = OnceLock::new();
 
 impl Theme {
@@ -137,6 +138,8 @@ impl Theme {
         }
     }
 
+    // Used only if no theme file can be loaded at all, so the app still starts
+    // instead of crashing.
     fn fallback() -> Self {
         Self {
             name: "fallback".to_string(),
@@ -161,6 +164,8 @@ impl Theme {
     }
 }
 
+// "#1e1e1e" -> 0x1e1e1e. A bad value becomes bright magenta so it's easy to
+// spot on screen, instead of crashing the app like the old `panic!` did.
 fn parse_color(value: &str) -> u32 {
     u32::from_str_radix(value.trim().trim_start_matches('#'), 16).unwrap_or_else(|_| {
         eprintln!("Invalid theme color: {value}");

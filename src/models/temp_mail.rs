@@ -1,3 +1,8 @@
+//! Temporary email addresses from mail.tm (https://docs.mail.tm).
+//!
+//! Errors use `anyhow::Result`. The old `Box<dyn std::error::Error>` can't be
+//! sent between threads, and these functions run on tokio and hand their
+//! results back to the UI thread, so the error type has to be `Send`.
 use anyhow::{Context, Result, bail};
 use rand::{Rng, distr::Alphanumeric};
 use reqwest::Client;
@@ -5,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+// One email, used for both Gmail and temp mail. `body` is empty until the
+// full message has been fetched; `intro` is the short preview.
 pub struct Email {
     pub id: String,
     pub from: String,
@@ -64,6 +71,8 @@ fn random_string(length: usize) -> String {
         .collect()
 }
 
+// Picks mail.tm's first domain, makes up a random username and password,
+// creates the account and logs in to get a token.
 pub async fn create_account() -> Result<TempEmail> {
     let client = crate::runtime::http();
 
@@ -125,6 +134,7 @@ pub async fn create_account() -> Result<TempEmail> {
     })
 }
 
+// mail.tm tokens expire, so we log in again to get a fresh one.
 async fn get_token(client: &Client, email: &TempEmail) -> Result<String> {
     let response = client
         .post("https://api.mail.tm/token")
@@ -176,6 +186,8 @@ pub async fn get_mail(email: &TempEmail) -> Result<Vec<Email>> {
             from: message.from.address,
             subject: message.subject,
             intro: message.intro.unwrap_or_default(),
+            // mail.tm's message list only includes a preview (`intro`), not the
+            // full body, so temp emails currently only show the preview.
             body: String::new(),
             seen: message.seen,
             created_at: message.created_at,
