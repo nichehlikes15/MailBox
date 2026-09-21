@@ -77,12 +77,9 @@ impl Render for TopBar {
                                     .h(px(15.0)),
                             )
                             .on_click(cx.listener(|topbar, _, _, cx| {
-                                if let Some(settings_window) = topbar.settings_window
-                                    && settings_window
                                 // If the settings window is still open, just bring it to the front.
                                 // `update` fails if it was closed, so we fall through and open a new one.
-                                if let Some(settings_window) = topbar.settings_window {
-                                    if settings_window
+                                if let Some(settings_window) = topbar.settings_window && settings_window
                                         .update(cx, |_, window, _| window.activate_window())
                                         .is_ok()
                                     {

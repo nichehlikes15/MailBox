@@ -58,9 +58,7 @@ pub fn save(data: &StoredData) {
 
 pub fn clear() {
     let path = storage_path();
-    if let Err(error) = fs::remove_file(path) {
-        if error.kind() != std::io::ErrorKind::NotFound {
+    if let Err(error) = fs::remove_file(path) && error.kind() != std::io::ErrorKind::NotFound {
             eprintln!("Failed to delete mailbox state: {error}");
         }
-    }
 }

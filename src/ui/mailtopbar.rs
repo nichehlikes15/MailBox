@@ -11,7 +11,6 @@ pub struct MailTopBar {
 
 impl MailTopBar {
     pub fn new(state: Entity<AppState>, theme: Entity<Theme>, cx: &mut Context<Self>) -> Self {
-    pub fn new(theme: Entity<Theme>, cx: &mut Context<Self>) -> Self {
         // Cached view (see app.rs): redraw when the theme changes.
         cx.observe(&theme, |_, _, cx| cx.notify()).detach();
         Self { theme, state }

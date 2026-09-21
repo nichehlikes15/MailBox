@@ -233,14 +233,12 @@ pub async fn login() -> Result<GoogleAccount> {
             let _ = shutdown_receiver.await;
         });
 
-        if let Err(error) = server.await {
-            if let Some(sender) = sender.lock().await.take() {
+        if let Err(error) = server.await && let Some(sender) = sender.lock().await.take() {
                 let _ = sender.send(Err(anyhow::anyhow!(
                     "OAuth callback server failed: {}",
                     error
                 )));
             }
-        }
     });
 
     if let Err(error) = webbrowser::open(&oauth_url) {
@@ -379,10 +377,6 @@ pub async fn get_gmail_mail(account: &mut GoogleAccount, limit: usize) -> Result
 // Loads the newest inbox messages (headers + preview only, no bodies).
 // Gmail's list endpoint only returns ids, so each message's details need a
 // second request.
-pub async fn get_gmail_mail(
-    account: &mut GoogleAccount,
-    limit: usize,
-) -> Result<Vec<super::temp_mail::Email>> {
     let access_token = account.ensure_access_token().await?.to_owned();
 
     let limit = limit.clamp(1, 25);
@@ -546,8 +540,7 @@ fn find_part(payload: &GmailPayload, mime: Option<&str>) -> Option<String> {
         (Some(_), None) => false,
     };
 
-    if mime_matches {
-        if let Some(text) = payload
+    if mime_matches && let Some(text) = payload
             .body
             .as_ref()
             .and_then(|body| body.data.as_deref())
@@ -556,7 +549,6 @@ fn find_part(payload: &GmailPayload, mime: Option<&str>) -> Option<String> {
         {
             return Some(text);
         }
-    }
 
     payload
         .parts
