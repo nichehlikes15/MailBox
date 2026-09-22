@@ -8,7 +8,8 @@ use crate::models::{Theme, create_account, login};
 pub struct Sidebar {
     pub state: Entity<crate::app::AppState>,
     pub theme: Entity<Theme>,
-    menu_open: bool,
+    temp_menu_open: bool,
+    mail_menu_open: bool,
 }
 
 impl Sidebar {
@@ -23,7 +24,7 @@ impl Sidebar {
         // the list.
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
         cx.observe(&theme, |_, _, cx| cx.notify()).detach();
-        Self { state, theme, menu_open: false }
+        Self { state, theme, temp_menu_open: false, mail_menu_open: false }
     }
 }
 
@@ -109,54 +110,11 @@ impl Render for Sidebar {
                                     .hover(|this| this.bg(rgb(theme.selected_option)))
                                     .id("add-email")
                                     .cursor_pointer()
+
                                     .on_click(root_cx.listener(
-                                        move |_this, _event, _window, cx| {
-                                            let google_state = google_state.clone();
-                                            if google_state.read(cx).google_login_status.as_deref()
-                                                == Some("Opening Google login...")
-                                            {
-                                                return;
-                                            }
-                                            google_state.update(cx, |state, cx| {
-                                                state.google_login_status =
-                                                    Some("Opening Google login...".to_string());
-                                                cx.notify();
-                                            });
-                                            // login() runs an axum server and HTTP calls, so it runs on tokio.
-                                            // Start the work on tokio first, then wait for it from a gpui task.
-                                            let io = crate::runtime::spawn(login());
-                                            cx.spawn(async move |_this, cx2| {
-                                                let result = io
-                                                    .await
-                                                    .map_err(anyhow::Error::from)
-                                                    .and_then(|result| result);
-                                                match result {
-                                                    Ok(account) => {
-                                                        google_state.update(cx2, |state, cx| {
-                                                            state.google_accounts.push(account);
-                                                            state.persist();
-                                                            state.google_login_status = None;
-                                                            state.selected_sidebar_email =
-                                                                Some(SidebarEmail::Google(
-                                                                    state.google_accounts.len() - 1,
-                                                                ));
-                                                            cx.notify();
-                                                        });
-                                                    }
-                                                    Err(error) => {
-                                                        google_state.update(cx2, |state, cx| {
-                                                            state.google_login_status =
-                                                                Some(format!(
-                                                                    "Google login failed: {error:#}"
-                                                                ));
-                                                            cx.notify();
-                                                        });
-                                                        eprintln!("Google login failed: {error:#}");
-                                                    }
-                                                }
-                                                Ok::<(), anyhow::Error>(())
-                                            })
-                                            .detach();
+                                        move |this, _event, _window, cx| {
+                                            this.mail_menu_open = !this.mail_menu_open;
+                                            cx.notify();
                                         },
                                     ))
                                     .child(
@@ -165,7 +123,114 @@ impl Render for Sidebar {
                                             .text_color(rgb(theme.text_muted))
                                             .w(px(10.0))
                                             .h(px(10.0)),
-                                    ),
+                                    )
+                                    .when(self.mail_menu_open, |button| {
+                                        button.child(
+                                            deferred(
+                                                anchored()
+                                                    .anchor(Anchor::TopLeft)
+                                                    .child(
+                                                        div()
+                                                            .absolute()
+                                                            .top(px(10.0))
+                                                            .right(px(0.0))
+                                                            .w(px(190.0))
+                                                            .py(px(5.0))
+                                                            .bg(rgb(theme.background))
+                                                            .border(px(1.0))
+                                                            .border_color(rgb(theme.border))
+                                                            .rounded(px(6.0))
+                                                            .shadow_lg()
+                                                            .occlude()
+                                                            .child(
+                                                                div()
+                                                                    .id("temp-menu-option-1")
+                                                                    .px(px(10.0))
+                                                                    .py(px(7.0))
+                                                                    .text_size(px(12.0))
+                                                                    .text_color(rgb(theme.text))
+                                                                    .hover(|item| {
+                                                                        item.bg(rgb(theme.selected_option))
+                                                                    })
+                                                                    .cursor_pointer()
+                                                                    .on_click(root_cx.listener(
+                                                                        move |_this, _event, _window, cx| {
+                                                                            _this.mail_menu_open = false;
+
+                                                                            let google_state = google_state.clone();
+                                                                            if google_state.read(cx).google_login_status.as_deref()
+                                                                                == Some("Opening Google login...")
+                                                                            {
+                                                                                return;
+                                                                            }
+                                                                            google_state.update(cx, |state, cx| {
+                                                                                state.google_login_status =
+                                                                                    Some("Opening Google login...".to_string());
+                                                                                cx.notify();
+                                                                            });
+                                                                            // login() runs an axum server and HTTP calls, so it runs on tokio.
+                                                                            // Start the work on tokio first, then wait for it from a gpui task.
+                                                                            let io = crate::runtime::spawn(login());
+                                                                            cx.spawn(async move |_this, cx2| {
+                                                                                let result = io
+                                                                                    .await
+                                                                                    .map_err(anyhow::Error::from)
+                                                                                    .and_then(|result| result);
+                                                                                match result {
+                                                                                    Ok(account) => {
+                                                                                        google_state.update(cx2, |state, cx| {
+                                                                                            state.google_accounts.push(account);
+                                                                                            state.persist();
+                                                                                            state.google_login_status = None;
+                                                                                            state.selected_sidebar_email =
+                                                                                                Some(SidebarEmail::Google(
+                                                                                                    state.google_accounts.len() - 1,
+                                                                                                ));
+                                                                                            cx.notify();
+                                                                                        });
+                                                                                    }
+                                                                                    Err(error) => {
+                                                                                        google_state.update(cx2, |state, cx| {
+                                                                                            state.google_login_status =
+                                                                                                Some(format!(
+                                                                                                    "Google login failed: {error:#}"
+                                                                                                ));
+                                                                                            cx.notify();
+                                                                                        });
+                                                                                        eprintln!("Google login failed: {error:#}");
+                                                                                    }
+                                                                                }
+                                                                                Ok::<(), anyhow::Error>(())
+                                                                            })
+                                                                            .detach();
+                                                                        },
+                                                                    ))
+                                                                    .child("Gmail"),
+                                                            )
+                                                            .child(
+                                                                div()
+                                                                    .id("temp-menu-option-2")
+                                                                    .px(px(10.0))
+                                                                    .py(px(7.0))
+                                                                    .text_size(px(12.0))
+                                                                    .text_color(rgb(theme.text))
+                                                                    .hover(|item| {
+                                                                        item.bg(rgb(theme.selected_option))
+                                                                    })
+                                                                    .cursor_pointer()
+                                                                    .on_click(root_cx.listener(
+                                                                        move |this, _event, _window, _cx| {
+                                                                            println!("Menu option 2 clicked");
+                                                                            this.mail_menu_open = false;
+                                                                        },
+                                                                    ))
+                                                                    .child("Yahoo"),
+                                                            ),
+                                                    ),
+                                            )
+                                            .priority(1),
+                                        )
+                                    })
                             ),
                     )
                     .child(
@@ -261,7 +326,7 @@ impl Render for Sidebar {
                                     .cursor_pointer()
                                     .on_click(root_cx.listener(
                                         move |this, _event, _window, cx| {
-                                            this.menu_open = !this.menu_open;
+                                            this.temp_menu_open = !this.temp_menu_open;
                                             cx.notify();
                                         },
                                     ))
@@ -272,7 +337,7 @@ impl Render for Sidebar {
                                             .w(px(10.0))
                                             .h(px(10.0)),
                                     )
-                                    .when(self.menu_open, |button| {
+                                    .when(self.temp_menu_open, |button| {
                                         button.child(
                                             deferred(
                                                 anchored()
@@ -303,7 +368,7 @@ impl Render for Sidebar {
                                                                     .cursor_pointer()
                                                                     .on_click(root_cx.listener(
                                                                         move |_this: &mut Sidebar, _event, _window, cx| {
-                                                                            _this.menu_open = false;
+                                                                            _this.temp_menu_open = false;
                                                                             let app_state = temp_email_state.clone();
 
                                                                             // Same pattern as login above: the network call runs on tokio, and the
@@ -354,7 +419,7 @@ impl Render for Sidebar {
                                                                     .on_click(root_cx.listener(
                                                                         move |this, _event, _window, _cx| {
                                                                             println!("Menu option 2 clicked");
-                                                                            this.menu_open = false;
+                                                                            this.temp_menu_open = false;
                                                                         },
                                                                     ))
                                                                     .child("Custom Generate"),
