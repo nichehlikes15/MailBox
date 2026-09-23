@@ -1,10 +1,10 @@
-use crate::app::AppState;
+//use crate::app::AppState;
 use crate::models::{Email, Theme};
-use gpui::{Context, Entity, Render, SharedString, Window, div, prelude::*, px, rgb, img, svg};
+use gpui::{Context, Entity, Render, SharedString, Window, div, prelude::*, px, rgb, img};
 
 // Shows one opened email: subject, sender and body, with a back button.
 pub struct EmailView {
-    pub state: Entity<AppState>,
+    //pub state: Entity<AppState>,
     pub theme: Entity<Theme>,
     email_id: Option<String>,
     // `SharedString` is gpui's cheap-to-clone string (reference counted), so
@@ -18,14 +18,14 @@ pub struct EmailView {
 }
 
 impl EmailView {
-    pub fn new(state: Entity<AppState>, theme: Entity<Theme>, cx: &mut Context<Self>) -> Self {
+    pub fn new(theme: Entity<Theme>, cx: &mut Context<Self>) -> Self {
         // Re-render when the theme changes. This view is cached (see app.rs), so
         // without this it would keep the old colours until something else
         // notified it.
         cx.observe(&theme, |_, _, cx| cx.notify()).detach();
 
         Self {
-            state,
+            //state,
             theme,
             email_id: None,
             subject: SharedString::default(),

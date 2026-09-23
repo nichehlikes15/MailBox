@@ -1,4 +1,4 @@
-use gpui::{ClipboardItem, Context, Entity, Render, Window, div, prelude::*, px, rgb, svg, img, deferred, anchored, Anchor};
+use gpui::{ClipboardItem, Context, Entity, Render, Window, div, prelude::*, px, rgb, svg, deferred, anchored, Anchor};
 
 use crate::app::SidebarEmail;
 use crate::models::{Theme, create_account, login};

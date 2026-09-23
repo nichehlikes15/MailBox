@@ -34,8 +34,8 @@ pub struct GoogleTokenResponse {
     pub access_token: String,
     pub expires_in: u64,
     pub refresh_token: Option<String>,
-    pub scope: String,
-    pub token_type: String,
+    //pub scope: String,
+    //pub token_type: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)] 

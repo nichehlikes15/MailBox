@@ -80,7 +80,7 @@ impl AppState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SidebarEmail {
-    Mail(usize),
+    //Mail(usize),
     Google(usize),
     Temp(usize),
 }
@@ -120,7 +120,7 @@ impl MailApp {
 
                 // The inbox gets a handle to the email view so that clicking an email can
                 // tell the email view what to show.
-                let email_view = cx.new(|cx| EmailView::new(state.clone(), theme.clone(), cx));
+                let email_view = cx.new(|cx| EmailView::new(theme.clone(), cx));
                 let inbox =
                     cx.new(|cx| Inbox::new(state.clone(), email_view.clone(), theme.clone(), cx));
 

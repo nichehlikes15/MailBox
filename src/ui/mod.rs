@@ -8,6 +8,6 @@ mod topbar;
 pub use email::EmailView;
 pub use inbox::Inbox;
 pub use mailtopbar::MailTopBar;
-pub use settings::Settings;
+//pub use settings::Settings;
 pub use sidebar::Sidebar;
 pub use topbar::TopBar;
