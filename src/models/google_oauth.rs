@@ -17,7 +17,7 @@ use tokio::sync::oneshot;
 
 const CLIENT_ID: &str = "830227318434-7mgfk7bucm5mt9sl8271oevg9bjj6vlu.apps.googleusercontent.com";
 const REDIRECT_URI: &str = "http://127.0.0.1:49152/callback";
-const SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
+const SCOPE: &str = "https://www.googleapis.com/auth/gmail.modify";
 
 // A small server that holds the Google client secret (which must not be
 // shipped inside the app) and does the token exchange/refresh for us.
@@ -38,7 +38,7 @@ pub struct GoogleTokenResponse {
     //pub token_type: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)] 
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GoogleAccount {
     pub email: String,
     pub access_token: String,
@@ -347,6 +347,8 @@ struct GmailMessageRef {
 struct GmailMessage {
     id: String,
     snippet: Option<String>,
+    #[serde(rename = "labelIds", default)]
+    label_ids: Vec<String>,
     payload: Option<GmailPayload>,
 
     #[serde(rename = "internalDate")]
@@ -373,7 +375,11 @@ struct GmailBody {
     data: Option<String>,
 }
 
-pub async fn get_gmail_mail(account: &mut GoogleAccount, limit: usize) -> Result<Vec<super::temp_mail::Email>> {
+pub async fn get_gmail_mail(
+    account: &mut GoogleAccount,
+    limit: usize,
+    label: &str,
+) -> Result<Vec<super::temp_mail::Email>> {
 // Loads the newest inbox messages (headers + preview only, no bodies).
 // Gmail's list endpoint only returns ids, so each message's details need a
 // second request.
@@ -387,7 +393,10 @@ pub async fn get_gmail_mail(account: &mut GoogleAccount, limit: usize) -> Result
     let response = client
         .get("https://gmail.googleapis.com/gmail/v1/users/me/messages")
         .bearer_auth(&access_token)
-        .query(&[("labelIds", "INBOX"), ("maxResults", max_results.as_str())])
+        .query(&[
+            ("labelIds", label),
+            ("maxResults", max_results.as_str()),
+        ])
         .send()
         .await
         .context("Failed to list Gmail messages")?;
@@ -484,6 +493,31 @@ pub async fn get_gmail_message(account: &mut GoogleAccount, message_id: &str) ->
     Ok(to_email(message, true))
 }
 
+pub async fn set_gmail_starred(account: &mut GoogleAccount,message_id: &str,starred: bool) -> Result<()> {
+    let access_token = account.ensure_access_token().await?.to_owned();
+    let response = crate::runtime::http()
+        .post(format!(
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/modify",
+            message_id
+        ))
+        .bearer_auth(access_token)
+        .json(&serde_json::json!({
+            "addLabelIds": if starred { vec!["STARRED"] } else { Vec::<&str>::new() },
+            "removeLabelIds": if starred { Vec::<&str>::new() } else { vec!["STARRED"] },
+        }))
+        .send()
+        .await
+        .context("Failed to update Gmail star")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("Failed to update Gmail star: {} {}", status, body);
+    }
+
+    Ok(())
+}
+
 fn to_email(message: GmailMessage, include_body: bool) -> super::temp_mail::Email {
     let headers = message
         .payload
@@ -517,6 +551,7 @@ fn to_email(message: GmailMessage, include_body: bool) -> super::temp_mail::Emai
         intro: message.snippet.unwrap_or_default(),
         body,
         seen: true,
+        starred: message.label_ids.iter().any(|label| label == "STARRED"),
         created_at: message.internal_date.unwrap_or_default(),
     }
 }

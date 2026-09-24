@@ -35,12 +35,14 @@ pub struct AppState {
     pub google_accounts: Vec<GoogleAccount>,
     // Key is "temp:<account id>" or "google:<email address>".
     pub email_cache: HashMap<String, Vec<Email>>,
+    pub temp_starred: HashMap<String, Vec<String>>,
     pub selected_email: Option<usize>,
     // `Some` while an email is open. MailApp's render uses this to decide
     // whether to show the inbox list or the email view.
     pub selected_message: Option<Email>,
     pub selected_sidebar_email: Option<SidebarEmail>,
     pub google_login_status: Option<String>,
+    pub mail_filter: MailFilter,
 }
 
 impl AppState {
@@ -57,6 +59,7 @@ impl AppState {
             temp_email: data.temp_email,
             google_accounts: data.google_accounts,
             email_cache: data.emails,
+            temp_starred: data.temp_starred,
             selected_email: match selected_sidebar_email {
                 Some(SidebarEmail::Temp(index)) => Some(index),
                 _ => None,
@@ -64,6 +67,7 @@ impl AppState {
             selected_message: None,
             selected_sidebar_email,
             google_login_status: None,
+            mail_filter: MailFilter::Inbox,
         }
     }
 
@@ -74,7 +78,29 @@ impl AppState {
             temp_email: self.temp_email.clone(),
             google_accounts: self.google_accounts.clone(),
             emails: self.email_cache.clone(),
+            temp_starred: self.temp_starred.clone(),
         });
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MailFilter {
+    Inbox,
+    Starred,
+    Drafts,
+    Sent,
+    Trash,
+}
+
+impl MailFilter {
+    pub fn gmail_label(self) -> &'static str {
+        match self {
+            Self::Inbox => "INBOX",
+            Self::Starred => "STARRED",
+            Self::Drafts => "DRAFT",
+            Self::Sent => "SENT",
+            Self::Trash => "TRASH",
+        }
     }
 }
 
@@ -142,6 +168,7 @@ impl MailApp {
 impl Render for MailApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme.read(cx).clone();
+        let hover_state = self.state.clone();
 
         // ---- Why `.cached(...)`? ------------------------------------------
         //
@@ -193,6 +220,9 @@ impl Render for MailApp {
             .bg(rgb(theme.background))
             .text_color(rgb(theme.text_muted))
             .font_family("Lilex")
+            .on_mouse_exit(move |_event, _window, cx| {
+                hover_state.update(cx, |_state, cx| cx.notify());
+            })
             .flex()
             .flex_col()
             .child(

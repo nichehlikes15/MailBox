@@ -19,6 +19,8 @@ pub struct Email {
     pub intro: String,
     pub body: String,
     pub seen: bool,
+    #[serde(default)]
+    pub starred: bool,
     pub created_at: String,
 }
 
@@ -190,6 +192,7 @@ pub async fn get_mail(email: &TempEmail) -> Result<Vec<Email>> {
             // full body, so temp emails currently only show the preview.
             body: String::new(),
             seen: message.seen,
+            starred: false,
             created_at: message.created_at,
         })
         .collect();

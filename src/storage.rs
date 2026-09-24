@@ -7,6 +7,8 @@ pub struct StoredData {
     pub temp_email: Vec<TempEmail>,
     pub google_accounts: Vec<GoogleAccount>,
     pub emails: HashMap<String, Vec<Email>>,
+    #[serde(default)]
+    pub temp_starred: HashMap<String, Vec<String>>,
 }
 
 // Windows: %APPDATA%/mailbox/state.json.

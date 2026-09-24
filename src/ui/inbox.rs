@@ -10,10 +10,10 @@
 //! to those background jobs so it can cancel them when they're not needed.
 use std::ops::Range;
 
-use crate::app::{AppState, SidebarEmail};
+use crate::app::{AppState, MailFilter, SidebarEmail};
 use crate::models::{
     Email, GoogleAccount, TempEmail, Theme, get_gmail_mail, get_gmail_message, get_mail,
-    refresh_token,
+    refresh_token, set_gmail_starred,
 };
 use crate::ui::EmailView;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
@@ -71,12 +71,15 @@ pub struct Inbox {
     /// The Gmail message currently being opened. Only one at a time: clicking
     /// another email drops (cancels) the previous request.
     open_task: Option<Task<()>>,
+    star_task: Option<Task<()>>,
     // Which email is loading right now (used to show "Opening…" and to ignore
     // double clicks on the same email).
     opening_message_id: Option<String>,
+    hovered_message_id: Option<String>,
     // `Account::key()` of the account whose mail is shown. Background results
     // for any other account are thrown away.
     active_account_id: Option<String>,
+    active_filter: MailFilter,
     // Remembers the list's scroll position, so going into an email and back
     // doesn't jump to the top.
     list_scroll: UniformListScrollHandle,
@@ -95,6 +98,7 @@ impl Inbox {
         // re-render ourselves. We must notify ourselves because this view is
         // cached (see the long comment in app.rs).
         cx.observe(&state, |this, _state, cx| {
+            this.hovered_message_id = None;
             this.sync_selected_account(cx);
             cx.notify();
         })
@@ -111,8 +115,11 @@ impl Inbox {
             email_view,
             mail_task: None,
             open_task: None,
+            star_task: None,
             opening_message_id: None,
+            hovered_message_id: None,
             active_account_id: None,
+            active_filter: MailFilter::Inbox,
             list_scroll: UniformListScrollHandle::new(),
         };
         // Load whatever account is already selected when the app starts.
@@ -141,12 +148,18 @@ impl Inbox {
     /// lots of reasons (token refreshes, emails opened...), so it only restarts
     /// the listener when the selected account is actually different.
     fn sync_selected_account(&mut self, cx: &mut Context<Self>) {
+        let selected_filter = self.state.read(cx).mail_filter;
         match self.selected_account(cx) {
             Some(account) => {
-                if self.active_account_id.as_deref() != Some(account.key().as_str()) {
+                if self.active_account_id.as_deref() != Some(account.key().as_str())
+                    || self.active_filter != selected_filter
+                {
+                    self.active_filter = selected_filter;
                     match account {
                         Account::Temp(account) => self.start_mail_listener(account, cx),
-                        Account::Google(account) => self.start_google_listener(account, cx),
+                        Account::Google(account) => {
+                            self.start_google_listener(account, selected_filter.gmail_label(), cx)
+                        }
                     }
                 }
             }
@@ -171,20 +184,34 @@ impl Inbox {
         self.mail_task = None;
         self.cancel_open();
         self.active_account_id = Some(account_key.to_string());
-        self.emails = self
-            .state
-            .read(cx)
-            .email_cache
-            .get(account_key)
-            .cloned()
-            .unwrap_or_default();
+        let cache_key = self.cache_key(account_key);
+        self.emails = {
+            let state = self.state.read(cx);
+            state
+                .email_cache
+                .get(&cache_key)
+                .or_else(|| {
+                    (self.active_filter == MailFilter::Inbox)
+                        .then(|| state.email_cache.get(account_key))
+                        .flatten()
+                })
+                .cloned()
+                .unwrap_or_default()
+        };
+        if account_key.starts_with("temp:") {
+            self.apply_temp_stars(cx);
+        }
         self.close_email(cx);
         self.loading = true;
         cx.notify();
     }
 
+    fn cache_key(&self, account_key: &str) -> String {
+        format!("{}:{:?}", account_key, self.active_filter)
+    }
+
     /// Loads the latest Gmail messages once (Gmail has no live stream here).
-    fn start_google_listener(&mut self, mut account: GoogleAccount, cx: &mut Context<Self>) {
+    fn start_google_listener(&mut self,mut account: GoogleAccount,label: &'static str,cx: &mut Context<Self>) {
         let account_key = format!("google:{}", account.email);
         self.switch_to(&account_key, cx);
 
@@ -192,7 +219,7 @@ impl Inbox {
             // This block runs on tokio. It takes ownership of `account` because
             // `get_gmail_mail` may refresh the access token, and we want the
             // updated account back so we can save the new token.
-            let result = get_gmail_mail(&mut account, 25).await;
+            let result = get_gmail_mail(&mut account, 25, label).await;
             (account, result)
         });
 
@@ -210,7 +237,8 @@ impl Inbox {
                 match result {
                     Ok((account, Ok(emails))) => {
                         inbox.store_google_account(account, cx);
-                        inbox.merge_emails(emails);
+                        inbox.replace_emails(emails);
+                        inbox.persist_emails(cx);
                     }
                     Ok((_, Err(error))) => eprintln!("Failed to retrieve Gmail: {error:#}"),
                     Err(error) => eprintln!("Gmail task stopped: {error}"),
@@ -276,6 +304,7 @@ impl Inbox {
             }
             TempMailEvent::Emails(emails) => {
                 self.merge_emails(emails);
+                self.apply_temp_stars(cx);
                 self.persist_emails(cx);
                 self.loading = false;
             }
@@ -359,6 +388,99 @@ impl Inbox {
         cx.notify();
     }
 
+    fn toggle_star(&mut self, message_id: &str, cx: &mut Context<Self>) {
+        let Some(email) = self.emails.iter_mut().find(|email| email.id == message_id) else {
+            return;
+        };
+        let starred = !email.starred;
+        email.starred = starred;
+        let account = self.selected_account(cx);
+        let Some(account) = account else { return };
+
+        match account {
+            Account::Temp(account) => {
+                let account_key = format!("temp:{}", account.id);
+                self.state.update(cx, |state, _cx| {
+                    let starred_ids = state.temp_starred.entry(account_key.clone()).or_default();
+                    if starred {
+                        if !starred_ids.iter().any(|id| id == message_id) {
+                            starred_ids.push(message_id.to_string());
+                        }
+                    } else {
+                        starred_ids.retain(|id| id != message_id);
+                    }
+                    let starred_cache_key =
+                        format!("{}:{:?}", account_key, MailFilter::Starred);
+                    if let Some(cached) = state.email_cache.get_mut(&starred_cache_key) {
+                        if starred {
+                            if let Some(cached_email) =
+                                cached.iter_mut().find(|email| email.id == message_id)
+                            {
+                                cached_email.starred = true;
+                            } else if let Some(email) = self.emails.iter().find(|email| email.id == message_id) {
+                                cached.push(email.clone());
+                            }
+                        } else {
+                            cached.retain(|email| email.id != message_id);
+                        }
+                    }
+                    state.persist();
+                });
+            }
+            Account::Google(mut account) => {
+                let message_id = message_id.to_string();
+                let account_key = format!("google:{}", account.email);
+                let updated_email = self
+                    .emails
+                    .iter()
+                    .find(|email| email.id == message_id)
+                    .cloned();
+                self.state.update(cx, |state, _cx| {
+                    let starred_cache_key =
+                        format!("{}:{:?}", account_key, MailFilter::Starred);
+                    if let Some(cached) = state.email_cache.get_mut(&starred_cache_key) {
+                        if starred {
+                            if let Some(cached_email) =
+                                cached.iter_mut().find(|email| email.id == message_id)
+                            {
+                                cached_email.starred = true;
+                            } else if let Some(email) = updated_email.clone() {
+                                cached.push(email);
+                            }
+                        } else {
+                            cached.retain(|email| email.id != message_id);
+                        }
+                    }
+                });
+                let request_message_id = message_id.clone();
+                let io = crate::runtime::spawn(async move {
+                    let result = set_gmail_starred(&mut account, &request_message_id, starred).await;
+                    (account, result)
+                });
+                self.star_task = Some(cx.spawn(async move |this, cx| {
+                    match io.await {
+                        Ok((account, Err(error))) => {
+                            eprintln!("Failed to update Gmail star: {error:#}");
+                            let _ = this.update(cx, |inbox, cx| {
+                                if let Some(email) = inbox.emails.iter_mut().find(|email| email.id == message_id) {
+                                    email.starred = !starred;
+                                }
+                                inbox.store_google_account(account, cx);
+                                cx.notify();
+                            });
+                        }
+                        Ok((account, Ok(()))) => {
+                            let _ = this.update(cx, |inbox, cx| inbox.store_google_account(account, cx));
+                        }
+                        Err(error) => eprintln!("Gmail star task stopped: {error}"),
+                    }
+                }));
+            }
+        }
+        self.persist_emails(cx);
+        cx.notify();
+    }
+
     fn cancel_open(&mut self) {
         self.open_task = None;
         self.opening_message_id = None;
@@ -422,14 +544,67 @@ impl Inbox {
             .sort_by(|left, right| right.created_at.cmp(&left.created_at));
     }
 
+    fn replace_emails(&mut self, emails: Vec<Email>) {
+        let mut refreshed = Vec::with_capacity(emails.len());
+        for email in emails {
+            if let Some(existing) = self.emails.iter().find(|existing| existing.id == email.id) && email.body.is_empty() && !existing.body.is_empty() {
+                refreshed.push(Email {
+                    body: existing.body.clone(),
+                    ..email
+                });
+                continue;
+            }
+            refreshed.push(email);
+        }
+
+        self.emails = refreshed;
+        self.emails
+            .sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    }
+
     /// Saves this account's emails to the on-disk cache.
     fn persist_emails(&self, cx: &mut Context<Self>) {
         if let Some(account_key) = self.active_account_id.clone() {
             let emails = self.emails.clone();
+            let cache_key = self.cache_key(&account_key);
             self.state.update(cx, |state, _cx| {
-                state.email_cache.insert(account_key, emails);
+                state.email_cache.insert(cache_key, emails);
                 state.persist();
             });
+        }
+    }
+
+    fn apply_temp_stars(&mut self, cx: &Context<Self>) {
+        let Some(account_key) = self.active_account_id.as_deref() else {
+            return;
+        };
+        let state = self.state.read(cx);
+        let starred_ids = state.temp_starred.get(account_key);
+        for email in &mut self.emails {
+            email.starred = starred_ids.is_some_and(|ids| ids.iter().any(|id| id == &email.id));
+        }
+    }
+
+    fn filtered_emails(&self) -> Vec<Email> {
+        match self.active_filter {
+            MailFilter::Inbox => self.emails.clone(),
+            MailFilter::Starred => self
+                .emails
+                .iter()
+                .filter(|email| email.starred)
+                .cloned()
+                .collect(),
+            MailFilter::Drafts | MailFilter::Sent | MailFilter::Trash => {
+                if self
+                    .active_account_id
+                    .as_deref()
+                    .is_some_and(|key| key.starts_with("google:"))
+                {
+                    self.emails.clone()
+                } else {
+                    Vec::new()
+                }
+            }
         }
     }
 
@@ -437,8 +612,9 @@ impl Inbox {
     /// Called by `uniform_list` in `render` below.
     fn render_rows(&mut self, range: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = self.theme.read(cx).clone();
+        let emails = self.filtered_emails();
 
-        self.emails[range.start.min(self.emails.len())..range.end.min(self.emails.len())]
+        emails[range.start.min(emails.len())..range.end.min(emails.len())]
             .iter()
             .map(|email| {
                 let message_id = email.id.clone();
@@ -446,6 +622,9 @@ impl Inbox {
                 // email's id rather than its index, so the right email opens even if
                 // the list changed in the meantime.
                 let is_opening = self.opening_message_id.as_deref() == Some(email.id.as_str());
+                let is_starred = email.starred;
+                let is_hovered = self.hovered_message_id.as_deref() == Some(email.id.as_str());
+                let star_message_id = message_id.clone();
 
                 div()
                     .id(format!("email-{}", email.id))
@@ -457,12 +636,29 @@ impl Inbox {
                     .border_b_1()
                     .border_color(rgb(theme.border))
                     .cursor_pointer()
+                    .on_mouse_move(cx.listener({
+                        let message_id = message_id.clone();
+                        move |inbox, _event, _window, cx| {
+                            if inbox.hovered_message_id.as_deref() != Some(message_id.as_str()) {
+                                inbox.hovered_message_id = Some(message_id.clone());
+                                cx.notify();
+                            }
+                        }
+                    }))
+                    .on_mouse_exit(cx.listener({
+                        let message_id = message_id.clone();
+                        move |inbox, _event, _window, cx| {
+                            if inbox.hovered_message_id.as_deref() == Some(message_id.as_str()) {
+                                inbox.hovered_message_id = None;
+                                cx.notify();
+                            }
+                        }
+                    }))
                     // `cx.listener(...)` wraps a closure so it gets `&mut Inbox` when the
                     // click happens, which lets the handler call methods on the view.
                     .on_click(cx.listener(move |inbox, _event, _window, cx| {
                         inbox.open_email(&message_id, cx);
                     }))
-                    // Sender
                     .child(
                         div()
                             .w(px(220.0))
@@ -480,7 +676,22 @@ impl Inbox {
                             .text_color(rgb(theme.text_muted))
                             .child(truncate_text(&email.subject, 48)),
                     )
-                    .child(
+                    .child(if is_hovered {
+                        div()
+                            .id(format!("star-{}", email.id))
+                            .w(px(80.0))
+                            .ml(px(6.0))
+                            .flex()
+                            .justify_center()
+                            .text_size(px(19.0))
+                            .text_color(rgb(if is_starred { 0xf2c94c } else { theme.text_inactive }))
+                            .child(if is_starred { "★" } else { "☆" })
+                            .on_click(cx.listener(move |inbox, _event, _window, cx| {
+                                inbox.toggle_star(&star_message_id, cx);
+                                cx.stop_propagation();
+                            }))
+                            .into_any_element()
+                    } else {
                         div()
                             .w(px(80.0))
                             .ml(px(6.0))
@@ -490,8 +701,9 @@ impl Inbox {
                                 "Opening…".to_string()
                             } else {
                                 email_date(&email.created_at)
-                            }),
-                    )
+                            })
+                            .into_any_element()
+                    })
                     .into_any_element()
             })
             .collect()
@@ -648,7 +860,7 @@ impl Render for Inbox {
 
         let content = if !has_selected_account {
             placeholder("Select an inbox".to_string())
-        } else if self.emails.is_empty() {
+        } else if self.filtered_emails().is_empty() {
             placeholder(if self.loading {
                 let label = match selected_account {
                     Some(SidebarEmail::Google(index)) => self
@@ -672,21 +884,41 @@ impl Render for Inbox {
                 "No messages".to_string()
             })
         } else {
+            let emails = self.filtered_emails();
+            let list = uniform_list(
+                "email-list",
+                emails.len(),
+                cx.processor(|inbox, range: Range<usize>, _window, cx| {
+                    inbox.render_rows(range, cx)
+                }),
+            )
+            .track_scroll(&self.list_scroll)
+            .size_full();
+
             // Only the rows on screen are built and laid out.
             // `uniform_list` is a virtualised list: every row has the same height,
             // so gpui can work out which rows are on screen and only asks us to
             // build those (via `render_rows`). A normal list builds every row
             // every frame, which gets slow as the email cache grows.
             // `cx.processor(...)` gives the row-building closure `&mut Inbox`.
-            uniform_list(
-                "email-list",
-                self.emails.len(),
-                cx.processor(|inbox, range: Range<usize>, _window, cx| {
-                    inbox.render_rows(range, cx)
-                }),
-            )
-            .track_scroll(&self.list_scroll)
-            .size_full()
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(if self.loading {
+                    div()
+                        .w_full()
+                        .h(px(28.0))
+                        .flex_shrink_0()
+                        .px(px(24.0))
+                        .items_center()
+                        .text_size(px(12.0))
+                        .text_color(rgb(theme.text_inactive))
+                        .child("Loading the most recent messages...")
+                } else {
+                    div().h(px(0.0))
+                })
+                .child(div().flex_1().min_h(px(0.0)).child(list))
             .into_any_element()
         };
 

@@ -33,6 +33,7 @@ impl Render for Sidebar {
         let theme = self.theme.read(root_cx).clone();
         let temp_email_state = self.state.clone();
         let google_state = self.state.clone();
+        let hover_state = self.state.clone();
         let selected_sidebar_email = self.state.read(root_cx).selected_sidebar_email;
         let google_accounts = self.state.read(root_cx).google_accounts.clone();
         let temporary_emails = self
@@ -83,6 +84,9 @@ impl Render for Sidebar {
             .flex()
             .flex_col()
             .bg(rgb(theme.surface))
+            .on_mouse_move(move |_event, _window, cx| {
+                hover_state.update(cx, |_state, cx| cx.notify());
+            })
             .border_l(px(1.0))
             .border_color(rgb(theme.border))
             .child(
